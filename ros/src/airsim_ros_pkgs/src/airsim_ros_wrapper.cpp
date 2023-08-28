@@ -1071,8 +1071,8 @@ void AirsimROSWrapper::publish_vehicle_state()
         }
 
         // odom and transforms
-        vehicle_ros->odom_local_pub.publish(vehicle_ros->curr_odom);
-        publish_odom_tf(vehicle_ros->curr_odom);
+        // vehicle_ros->odom_local_pub.publish(vehicle_ros->curr_odom);
+        // publish_odom_tf(vehicle_ros->curr_odom);
 
         // ground truth GPS position from sim/HITL
         vehicle_ros->global_gps_pub.publish(vehicle_ros->gps_sensor_msg);
