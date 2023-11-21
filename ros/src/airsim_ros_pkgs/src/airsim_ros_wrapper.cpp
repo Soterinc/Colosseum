@@ -1160,7 +1160,8 @@ void AirsimROSWrapper::update_commands()
     // Only camera rotation, no translation movement of camera
     if (has_gimbal_cmd_) {
         std::lock_guard<std::mutex> guard(drone_control_mutex_);
-        airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, get_airlib_pose(0, 0, 0, gimbal_cmd_.target_quat), gimbal_cmd_.vehicle_name);
+        // bug: The gimbal position will be set back to 000 when publishing on the gimbal topic
+        airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, get_airlib_pose(0.30, 0, 0.30, gimbal_cmd_.target_quat), gimbal_cmd_.vehicle_name);
     }
 
     has_gimbal_cmd_ = false;
