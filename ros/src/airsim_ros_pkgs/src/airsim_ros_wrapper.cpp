@@ -1363,8 +1363,8 @@ sensor_msgs::ImagePtr AirsimROSWrapper::get_img_msg_from_response(const ImageRes
     img_msg_ptr->height = img_response.height;
     img_msg_ptr->width = img_response.width;
     img_msg_ptr->encoding = "bgr8";
-    if (is_vulkan_)
-        img_msg_ptr->encoding = "rgb8";
+    // if (is_vulkan_)
+    //     img_msg_ptr->encoding = "rgb8"; // Modified by SoterAI team. Image channels are in the wrong order
     img_msg_ptr->is_bigendian = 0;
     return img_msg_ptr;
 }
