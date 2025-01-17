@@ -218,6 +218,7 @@ private:
 
     /// ROS timer callbacks
     void img_response_timer_cb(const ros::TimerEvent& event); // update images from airsim_client_ every nth sec
+    void fixed_cam_img_response_timer_cb(const ros::TimerEvent& event); // update fixed camera images from airsim_client_ every nth sec
     void drone_state_timer_cb(const ros::TimerEvent& event); // update drone state from airsim_client_ every nth sec
     void lidar_timer_cb(const ros::TimerEvent& event);
 
@@ -265,7 +266,7 @@ private:
     sensor_msgs::ImagePtr get_depth_img_msg_from_response(const ImageResponse& img_response, const ros::Time curr_ros_time, const std::string frame_id);
 
     void process_and_publish_img_response(const std::vector<ImageResponse>& img_response_vec, const int img_response_idx, const std::string& vehicle_name);
-
+    void process_and_publish_fixed_cam_img_response(const std::vector<ImageResponse>& img_response_vec, const int img_response_idx, const std::string& vehicle_name);
     // methods which parse setting json ang generate ros pubsubsrv
     void create_ros_pubs_from_settings_json();
     void append_static_camera_tf(VehicleROS* vehicle_ros, const std::string& camera_name, const CameraSetting& camera_setting);
@@ -370,15 +371,21 @@ private:
 
     /// ROS Timers.
     ros::Timer airsim_img_response_timer_;
+    ros::Timer fixed_cam_airsim_img_response_timer_;
     ros::Timer airsim_control_update_timer_;
     ros::Timer airsim_lidar_update_timer_;
 
     typedef std::pair<std::vector<ImageRequest>, std::string> airsim_img_request_vehicle_name_pair;
+    typedef std::pair<std::vector<ImageRequest>, std::string> airsim_img_request_fixed_cam_name_pair;
     std::vector<airsim_img_request_vehicle_name_pair> airsim_img_request_vehicle_name_pair_vec_;
+    std::vector<airsim_img_request_fixed_cam_name_pair> airsim_img_request_fixed_cam_name_pair_vec_;
     std::vector<image_transport::Publisher> image_pub_vec_;
+    std::vector<image_transport::Publisher> fixed_cam_image_pub_vec_;
     std::vector<ros::Publisher> cam_info_pub_vec_;
+    std::vector<ros::Publisher> fixed_cam_cam_info_pub_vec_;
 
     std::vector<sensor_msgs::CameraInfo> camera_info_msg_vec_;
+    std::vector<sensor_msgs::CameraInfo> fixed_cam_camera_info_msg_vec_;
 
     /// ROS other publishers
     ros::Publisher clock_pub_;
