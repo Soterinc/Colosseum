@@ -2,3 +2,6 @@ std_msgs/Header header
 string camera_name
 string vehicle_name
 geometry_msgs/Quaternion orientation
+float64 position_x
+float64 position_y
+float64 position_z

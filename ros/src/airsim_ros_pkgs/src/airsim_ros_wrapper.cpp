@@ -37,6 +37,7 @@ AirsimROSWrapper::AirsimROSWrapper(const ros::NodeHandle& nh, const ros::NodeHan
     , airsim_client_images_(host_ip)
     , airsim_client_lidar_(host_ip)
     , has_gimbal_cmd_(false)
+    , has_fixed_cam_gimbal_cmd_(false)
     , tf_listener_(tf_buffer_)
 {
     ros_clock_.clock.fromSec(0);
@@ -678,7 +679,18 @@ void AirsimROSWrapper::gimbal_angle_euler_cmd_cb(const airsim_ros_pkgs::GimbalAn
         gimbal_cmd_.target_quat = get_airlib_quat(quat_control_cmd);
         gimbal_cmd_.camera_name = gimbal_angle_euler_cmd_msg.camera_name;
         gimbal_cmd_.vehicle_name = gimbal_angle_euler_cmd_msg.vehicle_name;
+        gimbal_cmd_.position_x = gimbal_angle_euler_cmd_msg.position_x;
+        gimbal_cmd_.position_y = gimbal_angle_euler_cmd_msg.position_y;
+        gimbal_cmd_.position_z = gimbal_angle_euler_cmd_msg.position_z;
         has_gimbal_cmd_ = true;
+        if(gimbal_angle_euler_cmd_msg.vehicle_name == "")
+        {
+            has_fixed_cam_gimbal_cmd_ = true;
+        }
+        else
+        {
+            has_fixed_cam_gimbal_cmd_ = false;
+        }
     }
     catch (tf2::TransformException& ex) {
         ROS_WARN("%s", ex.what());
@@ -1202,13 +1214,38 @@ void AirsimROSWrapper::update_commands()
     }
 
     // Only camera rotation, no translation movement of camera
-    if (has_gimbal_cmd_) {
+    if (has_gimbal_cmd_ && !has_fixed_cam_gimbal_cmd_) {
         std::lock_guard<std::mutex> guard(drone_control_mutex_);
         // bug: The gimbal position will be set back to 000 when publishing on the gimbal topic
         airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, get_airlib_pose(0.30, 0, 0.30, gimbal_cmd_.target_quat), gimbal_cmd_.vehicle_name);
     }
 
+    if (has_fixed_cam_gimbal_cmd_) {
+        std::lock_guard<std::mutex> guard(drone_control_mutex_);
+        // Define the desired position and orientation (pose)
+        msr::airlib::Pose camera_pose;
+        camera_pose.position = msr::airlib::Vector3r(10.0f, 5.0f, -3.0f); // Set position (x, y, z)
+        camera_pose.orientation = msr::airlib::Quaternionr(1.0f, 0.0f, 0.0f, 0.0f); // Set orientation (w, x, y, z)
+
+        // Set the camera pose
+        try
+        {
+            // airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, camera_pose, "", true);
+            airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, get_airlib_pose(gimbal_cmd_.position_x, 0, 0.30, gimbal_cmd_.target_quat), "", true);
+        }
+        catch(const std::exception& e)
+        {
+            std::cerr << e.what() << '\n';
+        }
+        
+        // bug: The gimbal position will be set back to 000 when publishing on the gimbal topic
+        // camera_pose = airsim.Pose(airsim.Vector3r(gimbal_cmd_.position_x, gimbal_cmd_.position_y, gimbal_cmd_.position_z), airsim.to_quaternion(gimbal_cmd_.roll, gimbal_cmd_.pitch, gimbal_cmd_.yaw))
+
+        // airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, get_airlib_pose(gimbal_cmd_.position_x, gimbal_cmd_.position_y, gimbal_cmd_.position_z, gimbal_cmd_.target_quat), "", true);
+    }
+
     has_gimbal_cmd_ = false;
+    has_fixed_cam_gimbal_cmd_ = false;
 }
 
 // airsim uses nans for zeros in settings.json. we set them to zeros here for handling tfs in ROS

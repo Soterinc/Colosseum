@@ -106,6 +106,9 @@ struct GimbalCmd
     std::string vehicle_name;
     std::string camera_name;
     msr::airlib::Quaternionr target_quat;
+    double position_x;
+    double position_y;
+    double position_z;
 
     // GimbalCmd() : vehicle_name(vehicle_name), camera_name(camera_name), target_quat(msr::airlib::Quaternionr(1,0,0,0)) {}
 
@@ -351,6 +354,7 @@ private:
 
     // gimbal control
     bool has_gimbal_cmd_;
+    bool has_fixed_cam_gimbal_cmd_;
     GimbalCmd gimbal_cmd_;
 
     /// ROS tf
