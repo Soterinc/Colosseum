@@ -679,9 +679,7 @@ void AirsimROSWrapper::gimbal_angle_euler_cmd_cb(const airsim_ros_pkgs::GimbalAn
         gimbal_cmd_.target_quat = get_airlib_quat(quat_control_cmd);
         gimbal_cmd_.camera_name = gimbal_angle_euler_cmd_msg.camera_name;
         gimbal_cmd_.vehicle_name = gimbal_angle_euler_cmd_msg.vehicle_name;
-        gimbal_cmd_.position_x = gimbal_angle_euler_cmd_msg.position_x;
-        gimbal_cmd_.position_y = gimbal_angle_euler_cmd_msg.position_y;
-        gimbal_cmd_.position_z = gimbal_angle_euler_cmd_msg.position_z;
+        gimbal_cmd_.position = gimbal_angle_euler_cmd_msg.position;
         has_gimbal_cmd_ = true;
         if(gimbal_angle_euler_cmd_msg.vehicle_name == "")
         {
@@ -1227,21 +1225,17 @@ void AirsimROSWrapper::update_commands()
         camera_pose.position = msr::airlib::Vector3r(10.0f, 5.0f, -3.0f); // Set position (x, y, z)
         camera_pose.orientation = msr::airlib::Quaternionr(1.0f, 0.0f, 0.0f, 0.0f); // Set orientation (w, x, y, z)
 
-        // Set the camera pose
+        // Set the ground camera pose
         try
         {
-            // airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, camera_pose, "", true);
-            airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, get_airlib_pose(gimbal_cmd_.position_x, 0, 0.30, gimbal_cmd_.target_quat), "", true);
+            airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, get_airlib_pose(gimbal_cmd_.position.x, gimbal_cmd_.position.y, gimbal_cmd_.position.z, gimbal_cmd_.target_quat), "", true);
         }
         catch(const std::exception& e)
         {
             std::cerr << e.what() << '\n';
         }
         
-        // bug: The gimbal position will be set back to 000 when publishing on the gimbal topic
-        // camera_pose = airsim.Pose(airsim.Vector3r(gimbal_cmd_.position_x, gimbal_cmd_.position_y, gimbal_cmd_.position_z), airsim.to_quaternion(gimbal_cmd_.roll, gimbal_cmd_.pitch, gimbal_cmd_.yaw))
 
-        // airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, get_airlib_pose(gimbal_cmd_.position_x, gimbal_cmd_.position_y, gimbal_cmd_.position_z, gimbal_cmd_.target_quat), "", true);
     }
 
     has_gimbal_cmd_ = false;

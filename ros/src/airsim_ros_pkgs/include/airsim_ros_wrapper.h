@@ -52,6 +52,7 @@ STRICT_MODE_OFF //todo what does this do?
 #include <sensor_msgs/MagneticField.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/Range.h>
+#include <geometry_msgs/Point.h>
 #include <rosgraph_msgs/Clock.h>
 #include <std_srvs/Empty.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -106,9 +107,7 @@ struct GimbalCmd
     std::string vehicle_name;
     std::string camera_name;
     msr::airlib::Quaternionr target_quat;
-    double position_x;
-    double position_y;
-    double position_z;
+    geometry_msgs::Point position;
 
     // GimbalCmd() : vehicle_name(vehicle_name), camera_name(camera_name), target_quat(msr::airlib::Quaternionr(1,0,0,0)) {}
 
