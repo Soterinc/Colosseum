@@ -4,3 +4,4 @@ string vehicle_name
 float64 roll
 float64 pitch
 float64 yaw
+geometry_msgs/Point position

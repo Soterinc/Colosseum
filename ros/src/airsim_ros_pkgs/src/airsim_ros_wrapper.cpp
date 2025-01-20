@@ -37,6 +37,7 @@ AirsimROSWrapper::AirsimROSWrapper(const ros::NodeHandle& nh, const ros::NodeHan
     , airsim_client_images_(host_ip)
     , airsim_client_lidar_(host_ip)
     , has_gimbal_cmd_(false)
+    , has_fixed_cam_gimbal_cmd_(false)
     , tf_listener_(tf_buffer_)
 {
     ros_clock_.clock.fromSec(0);
@@ -117,6 +118,7 @@ void AirsimROSWrapper::create_ros_pubs_from_settings_json()
     origin_geo_point_pub_ = nh_private_.advertise<airsim_ros_pkgs::GPSYaw>("origin_geo_point", 10);
 
     airsim_img_request_vehicle_name_pair_vec_.clear();
+    airsim_img_request_fixed_cam_name_pair_vec_.clear();
     image_pub_vec_.clear();
     cam_info_pub_vec_.clear();
     camera_info_msg_vec_.clear();
@@ -124,6 +126,44 @@ void AirsimROSWrapper::create_ros_pubs_from_settings_json()
     size_t lidar_cnt = 0;
 
     image_transport::ImageTransport image_transporter(nh_private_);
+
+    for (const auto& curr_fixed_cam_elem : AirSimSettings::singleton().external_cameras)
+    {
+        ROS_INFO("There are external cameras!");
+        auto& fixed_cam_setting = curr_fixed_cam_elem.second;
+        auto curr_fixed_cam_name = curr_fixed_cam_elem.first;
+        std::vector<ImageRequest> current_image_request_vec;
+        // iterate over capture_setting std::map<int, CaptureSetting> capture_settings
+        for (const auto& curr_fixed_cam_capture_elem : fixed_cam_setting.capture_settings) {
+            const auto& capture_setting = curr_fixed_cam_capture_elem.second;
+
+            // todo why does AirSimSettings::loadCaptureSettings calls AirSimSettings::initializeCaptureSettings()
+            // which initializes default capture settings for _all_ NINE msr::airlib::ImageCaptureBase::ImageType
+            if (!(std::isnan(capture_setting.fov_degrees))) {
+                const ImageType curr_image_type = msr::airlib::Utils::toEnum<ImageType>(capture_setting.image_type);
+                // if scene / segmentation / surface normals / infrared, get uncompressed image with pixels_as_floats = false
+                if (curr_image_type == ImageType::Scene ||
+                    curr_image_type == ImageType::Segmentation ||
+                    curr_image_type == ImageType::SurfaceNormals ||
+                    curr_image_type == ImageType::Infrared) {
+                    current_image_request_vec.push_back(ImageRequest(curr_fixed_cam_name, curr_image_type, false, false));
+                }
+                // if {DepthPlanar, DepthPerspective,DepthVis, DisparityNormalized}, get float image
+                else {
+                    current_image_request_vec.push_back(ImageRequest(curr_fixed_cam_name, curr_image_type, true));
+                }
+
+                const std::string fixed_cam_image_topic = "/" + curr_fixed_cam_name + "/" +
+                                                    image_type_int_to_string_map_.at(capture_setting.image_type);
+
+                fixed_cam_image_pub_vec_.push_back(image_transporter.advertise(fixed_cam_image_topic, 1));
+                fixed_cam_cam_info_pub_vec_.push_back(nh_private_.advertise<sensor_msgs::CameraInfo>(fixed_cam_image_topic + "/camera_info", 10));
+                fixed_cam_camera_info_msg_vec_.push_back(generate_cam_info(curr_fixed_cam_name, fixed_cam_setting, capture_setting));
+            }
+        }
+        // push back pair (vector of image captures, current vehicle name)
+        airsim_img_request_fixed_cam_name_pair_vec_.push_back({ current_image_request_vec, "" });
+    }
 
     // iterate over std::map<std::string, std::unique_ptr<VehicleSetting>> vehicles;
     for (const auto& curr_vehicle_elem : AirSimSettings::singleton().vehicles) {
@@ -327,8 +367,13 @@ void AirsimROSWrapper::create_ros_pubs_from_settings_json()
         ros::TimerOptions timer_options(ros::Duration(update_airsim_img_response_every_n_sec),
                                         boost::bind(&AirsimROSWrapper::img_response_timer_cb, this, _1),
                                         &img_timer_cb_queue_);
+        
+        ros::TimerOptions fixed_cam_timer_options(ros::Duration(update_airsim_img_response_every_n_sec),
+                                        boost::bind(&AirsimROSWrapper::fixed_cam_img_response_timer_cb, this, _1),
+                                        &img_timer_cb_queue_);
 
         airsim_img_response_timer_ = nh_private_.createTimer(timer_options);
+        fixed_cam_airsim_img_response_timer_ = nh_private_.createTimer(fixed_cam_timer_options);
         is_used_img_timer_cb_queue_ = true;
     }
 
@@ -634,7 +679,16 @@ void AirsimROSWrapper::gimbal_angle_euler_cmd_cb(const airsim_ros_pkgs::GimbalAn
         gimbal_cmd_.target_quat = get_airlib_quat(quat_control_cmd);
         gimbal_cmd_.camera_name = gimbal_angle_euler_cmd_msg.camera_name;
         gimbal_cmd_.vehicle_name = gimbal_angle_euler_cmd_msg.vehicle_name;
+        gimbal_cmd_.position = gimbal_angle_euler_cmd_msg.position;
         has_gimbal_cmd_ = true;
+        if(gimbal_angle_euler_cmd_msg.vehicle_name == "")
+        {
+            has_fixed_cam_gimbal_cmd_ = true;
+        }
+        else
+        {
+            has_fixed_cam_gimbal_cmd_ = false;
+        }
     }
     catch (tf2::TransformException& ex) {
         ROS_WARN("%s", ex.what());
@@ -1158,13 +1212,34 @@ void AirsimROSWrapper::update_commands()
     }
 
     // Only camera rotation, no translation movement of camera
-    if (has_gimbal_cmd_) {
+    if (has_gimbal_cmd_ && !has_fixed_cam_gimbal_cmd_) {
         std::lock_guard<std::mutex> guard(drone_control_mutex_);
         // bug: The gimbal position will be set back to 000 when publishing on the gimbal topic
         airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, get_airlib_pose(0.30, 0, 0.30, gimbal_cmd_.target_quat), gimbal_cmd_.vehicle_name);
     }
 
+    if (has_fixed_cam_gimbal_cmd_) {
+        std::lock_guard<std::mutex> guard(drone_control_mutex_);
+        // Define the desired position and orientation (pose)
+        msr::airlib::Pose camera_pose;
+        camera_pose.position = msr::airlib::Vector3r(10.0f, 5.0f, -3.0f); // Set position (x, y, z)
+        camera_pose.orientation = msr::airlib::Quaternionr(1.0f, 0.0f, 0.0f, 0.0f); // Set orientation (w, x, y, z)
+
+        // Set the ground camera pose
+        try
+        {
+            airsim_client_->simSetCameraPose(gimbal_cmd_.camera_name, get_airlib_pose(gimbal_cmd_.position.x, gimbal_cmd_.position.y, gimbal_cmd_.position.z, gimbal_cmd_.target_quat), "", true);
+        }
+        catch(const std::exception& e)
+        {
+            std::cerr << e.what() << '\n';
+        }
+        
+
+    }
+
     has_gimbal_cmd_ = false;
+    has_fixed_cam_gimbal_cmd_ = false;
 }
 
 // airsim uses nans for zeros in settings.json. we set them to zeros here for handling tfs in ROS
@@ -1320,6 +1395,27 @@ void AirsimROSWrapper::img_response_timer_cb(const ros::TimerEvent& event)
     }
 }
 
+void AirsimROSWrapper::fixed_cam_img_response_timer_cb(const ros::TimerEvent& event)
+{
+    try {
+        int image_response_idx = 0;
+        for (const auto& airsim_img_request_fixed_cam_name_pair : airsim_img_request_fixed_cam_name_pair_vec_) {
+            const std::vector<ImageResponse>& img_response = airsim_client_images_.simGetImages(airsim_img_request_fixed_cam_name_pair.first, airsim_img_request_fixed_cam_name_pair.second, true);
+
+            if (img_response.size() == airsim_img_request_fixed_cam_name_pair.first.size()) {
+                process_and_publish_fixed_cam_img_response(img_response, image_response_idx, airsim_img_request_fixed_cam_name_pair.second);
+                image_response_idx += img_response.size();
+            }
+        }
+    }
+
+    catch (rpc::rpc_error& e) {
+        std::string msg = e.get_error().as<std::string>();
+        std::cout << "Exception raised by the API, didn't get fixed cam image response." << std::endl
+                  << msg << std::endl;
+    }
+}
+
 void AirsimROSWrapper::lidar_timer_cb(const ros::TimerEvent& event)
 {
     try {
@@ -1427,6 +1523,41 @@ void AirsimROSWrapper::process_and_publish_img_response(const std::vector<ImageR
         // Scene / Segmentation / SurfaceNormals / Infrared
         else {
             image_pub_vec_[img_response_idx_internal].publish(get_img_msg_from_response(curr_img_response,
+                                                                                        curr_ros_time,
+                                                                                        curr_img_response.camera_name + "_optical"));
+        }
+        img_response_idx_internal++;
+    }
+}
+
+void AirsimROSWrapper::process_and_publish_fixed_cam_img_response(const std::vector<ImageResponse>& img_response_vec, const int img_response_idx, const std::string& vehicle_name)
+{
+    // todo add option to use airsim time (image_response.TTimePoint) like Gazebo /use_sim_time param
+    ros::Time curr_ros_time = ros::Time::now();
+    int img_response_idx_internal = img_response_idx;
+
+    for (const auto& curr_img_response : img_response_vec) {
+        // todo publishing a tf for each capture type seems stupid. but it foolproofs us against render thread's async stuff, I hope.
+        // Ideally, we should loop over cameras and then captures, and publish only one tf.
+        // publish_camera_tf(curr_img_response, curr_ros_time, vehicle_name, curr_img_response.camera_name);
+
+        // todo simGetCameraInfo is wrong + also it's only for image type -1.
+        // msr::airlib::CameraInfo camera_info = airsim_client_.simGetCameraInfo(curr_img_response.camera_name);
+
+        // update timestamp of saved cam info msgs
+
+        fixed_cam_camera_info_msg_vec_[img_response_idx_internal].header.stamp = airsim_timestamp_to_ros(curr_img_response.time_stamp);
+        fixed_cam_cam_info_pub_vec_[img_response_idx_internal].publish(fixed_cam_camera_info_msg_vec_[img_response_idx_internal]);
+
+        // DepthPlanar / DepthPerspective / DepthVis / DisparityNormalized
+        if (curr_img_response.pixels_as_float) {
+            fixed_cam_image_pub_vec_[img_response_idx_internal].publish(get_depth_img_msg_from_response(curr_img_response,
+                                                                                              curr_ros_time,
+                                                                                              curr_img_response.camera_name + "_optical"));
+        }
+        // Scene / Segmentation / SurfaceNormals / Infrared
+        else {
+            fixed_cam_image_pub_vec_[img_response_idx_internal].publish(get_img_msg_from_response(curr_img_response,
                                                                                         curr_ros_time,
                                                                                         curr_img_response.camera_name + "_optical"));
         }
