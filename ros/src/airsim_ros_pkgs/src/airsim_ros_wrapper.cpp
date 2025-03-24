@@ -93,6 +93,8 @@ void AirsimROSWrapper::initialize_ros()
     // ros params
     double update_airsim_control_every_n_sec;
     nh_private_.getParam("is_vulkan", is_vulkan_);
+    nh_private_.getParam("publish_cameras", publish_cameras_);
+    nh_private_.getParam("publish_lidar", publish_lidar_);
     nh_private_.getParam("update_airsim_control_every_n_sec", update_airsim_control_every_n_sec);
     nh_private_.getParam("publish_clock", publish_clock_);
     nh_private_.param("world_frame_id", world_frame_id_, world_frame_id_);
@@ -1376,63 +1378,72 @@ void AirsimROSWrapper::append_static_camera_tf(VehicleROS* vehicle_ros, const st
 
 void AirsimROSWrapper::img_response_timer_cb(const ros::TimerEvent& event)
 {
-    try {
-        int image_response_idx = 0;
-        for (const auto& airsim_img_request_vehicle_name_pair : airsim_img_request_vehicle_name_pair_vec_) {
-            const std::vector<ImageResponse>& img_response = airsim_client_images_.simGetImages(airsim_img_request_vehicle_name_pair.first, airsim_img_request_vehicle_name_pair.second);
+    if(publish_cameras_)
+    {
+        try {
+            int image_response_idx = 0;
+            for (const auto& airsim_img_request_vehicle_name_pair : airsim_img_request_vehicle_name_pair_vec_) {
+                const std::vector<ImageResponse>& img_response = airsim_client_images_.simGetImages(airsim_img_request_vehicle_name_pair.first, airsim_img_request_vehicle_name_pair.second);
 
-            if (img_response.size() == airsim_img_request_vehicle_name_pair.first.size()) {
-                process_and_publish_img_response(img_response, image_response_idx, airsim_img_request_vehicle_name_pair.second);
-                image_response_idx += img_response.size();
+                if (img_response.size() == airsim_img_request_vehicle_name_pair.first.size()) {
+                    process_and_publish_img_response(img_response, image_response_idx, airsim_img_request_vehicle_name_pair.second);
+                    image_response_idx += img_response.size();
+                }
             }
         }
-    }
 
-    catch (rpc::rpc_error& e) {
-        std::string msg = e.get_error().as<std::string>();
-        std::cout << "Exception raised by the API, didn't get image response." << std::endl
-                  << msg << std::endl;
-    }
+        catch (rpc::rpc_error& e) {
+            std::string msg = e.get_error().as<std::string>();
+            std::cout << "Exception raised by the API, didn't get image response." << std::endl
+                    << msg << std::endl;
+        }
+    }  
 }
 
 void AirsimROSWrapper::fixed_cam_img_response_timer_cb(const ros::TimerEvent& event)
 {
-    try {
-        int image_response_idx = 0;
-        for (const auto& airsim_img_request_fixed_cam_name_pair : airsim_img_request_fixed_cam_name_pair_vec_) {
-            const std::vector<ImageResponse>& img_response = airsim_client_images_.simGetImages(airsim_img_request_fixed_cam_name_pair.first, airsim_img_request_fixed_cam_name_pair.second, true);
+    if(publish_cameras_)
+    {
+        try {
+            int image_response_idx = 0;
+            for (const auto& airsim_img_request_fixed_cam_name_pair : airsim_img_request_fixed_cam_name_pair_vec_) {
+                const std::vector<ImageResponse>& img_response = airsim_client_images_.simGetImages(airsim_img_request_fixed_cam_name_pair.first, airsim_img_request_fixed_cam_name_pair.second, true);
 
-            if (img_response.size() == airsim_img_request_fixed_cam_name_pair.first.size()) {
-                process_and_publish_fixed_cam_img_response(img_response, image_response_idx, airsim_img_request_fixed_cam_name_pair.second);
-                image_response_idx += img_response.size();
+                if (img_response.size() == airsim_img_request_fixed_cam_name_pair.first.size()) {
+                    process_and_publish_fixed_cam_img_response(img_response, image_response_idx, airsim_img_request_fixed_cam_name_pair.second);
+                    image_response_idx += img_response.size();
+                }
             }
         }
-    }
 
-    catch (rpc::rpc_error& e) {
-        std::string msg = e.get_error().as<std::string>();
-        std::cout << "Exception raised by the API, didn't get fixed cam image response." << std::endl
-                  << msg << std::endl;
+        catch (rpc::rpc_error& e) {
+            std::string msg = e.get_error().as<std::string>();
+            std::cout << "Exception raised by the API, didn't get fixed cam image response." << std::endl
+                    << msg << std::endl;
+        }   
     }
 }
 
 void AirsimROSWrapper::lidar_timer_cb(const ros::TimerEvent& event)
 {
-    try {
-        for (auto& vehicle_name_ptr_pair : vehicle_name_ptr_map_) {
-            if (!vehicle_name_ptr_pair.second->lidar_pubs.empty()) {
-                for (auto& lidar_publisher : vehicle_name_ptr_pair.second->lidar_pubs) {
-                    auto lidar_data = airsim_client_lidar_.getLidarData(lidar_publisher.sensor_name, vehicle_name_ptr_pair.first);
-                    sensor_msgs::PointCloud2 lidar_msg = get_lidar_msg_from_airsim(lidar_data, vehicle_name_ptr_pair.first, lidar_publisher.sensor_name);
-                    lidar_publisher.publisher.publish(lidar_msg);
+    if(publish_lidar_)
+    {
+        try {
+            for (auto& vehicle_name_ptr_pair : vehicle_name_ptr_map_) {
+                if (!vehicle_name_ptr_pair.second->lidar_pubs.empty()) {
+                    for (auto& lidar_publisher : vehicle_name_ptr_pair.second->lidar_pubs) {
+                        auto lidar_data = airsim_client_lidar_.getLidarData(lidar_publisher.sensor_name, vehicle_name_ptr_pair.first);
+                        sensor_msgs::PointCloud2 lidar_msg = get_lidar_msg_from_airsim(lidar_data, vehicle_name_ptr_pair.first, lidar_publisher.sensor_name);
+                        lidar_publisher.publisher.publish(lidar_msg);
+                    }
                 }
             }
         }
-    }
-    catch (rpc::rpc_error& e) {
-        std::string msg = e.get_error().as<std::string>();
-        std::cout << "Exception raised by the API, didn't get image response." << std::endl
-                  << msg << std::endl;
+        catch (rpc::rpc_error& e) {
+            std::string msg = e.get_error().as<std::string>();
+            std::cout << "Exception raised by the API, didn't get image response." << std::endl
+                      << msg << std::endl;
+        }
     }
 }
 
